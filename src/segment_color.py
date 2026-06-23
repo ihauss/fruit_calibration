@@ -1,5 +1,17 @@
 import cv2
 import numpy as np
+import torch
+from albumentations import Compose, Normalize, Resize, ToTensorV2
+import segmentation_models_pytorch as smp
+
+model = smp.Unet(
+    encoder_name="efficientnet-b0",
+    encoder_weights=None,  # pas besoin de poids pré-entraînés pour l'inférence
+    in_channels=3,
+    classes=3
+)
+
+mode = "unet"
 
 def get_mango_mask(image):
     """Masque pour la mangue (jaune) avec ouverture."""
@@ -12,6 +24,10 @@ def get_mango_mask(image):
     kernel = np.ones((25,25), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     return mask
+
+def remove_model_prefix(state_dict):
+    return {key[6:] if key.startswith('model.') else key: value for key, value in state_dict.items()}
+
 
 def get_card_mask(image):
     """Masque pour la carte (rouge) avec ouverture."""
@@ -37,10 +53,53 @@ def get_largest_contour(mask):
         return None
     return max(contours, key=cv2.contourArea)
 
+def preprocess_image(image, target_size=(256, 256)):
+    # Lire l'image
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    original_size = image.shape[:2]  # (H, W)
+
+    # Transformer
+    transform = Compose([
+        Resize(*target_size),
+        Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ToTensorV2(),
+    ])
+    transformed = transform(image=image)
+    tensor = transformed["image"].unsqueeze(0)  # ajouter la dimension batch
+
+    return tensor, original_size, image
+
+def predict_mask(model, image_tensor, original_size, device):
+    with torch.no_grad():
+        image_tensor = image_tensor.to(device)
+        output = model(image_tensor)          # shape: [1, 3, 256, 256]
+        pred = output.argmax(dim=1)           # [1, 256, 256]
+        pred = pred.squeeze(0).cpu().numpy()  # [256, 256]
+
+    # Redimensionner à la taille originale (utiliser NEAREST pour préserver les classes)
+    mask_original = cv2.resize(
+        pred.astype(np.uint8),
+        (original_size[1], original_size[0]),
+        interpolation=cv2.INTER_NEAREST
+    )
+    return mask_original
+
 def get_contours(image):
     contours = {}
-    mango_mask = get_mango_mask(image)
-    card_mask = get_card_mask(image)
+    if mode == "hsv":
+        mango_mask = get_mango_mask(image)
+        card_mask = get_card_mask(image)
+    elif mode == "unet":
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        checkpoint = torch.load("src/models/Unet-96.ckpt", map_location=device)
+        state_dict = remove_model_prefix(checkpoint['state_dict'])
+        model.load_state_dict(state_dict)  # selon votre format Lightning
+        model.to(device)
+        model.eval()
+        tensor, original_size, original_image = preprocess_image(image)
+        mask = predict_mask(model, tensor, original_size, device)
+        mango_mask = (mask == 1).astype(np.uint8) * 255
+        card_mask = (mask == 2).astype(np.uint8) * 255
     contours["mango"] = get_largest_contour(mango_mask)
     contours["card"] = get_largest_contour(card_mask)
     return contours
