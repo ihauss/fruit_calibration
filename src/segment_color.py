@@ -12,6 +12,30 @@ model = smp.Unet(
 )
 
 mode = "unet"
+#mode = "hsv"
+
+def smooth_mask_morphological(mask, kernel_size=15):
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    # Fermeture : comble les petits trous
+    closed = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    # Ouverture : enlève les petits bruits
+    cleaned = cv2.morphologyEx(closed, cv2.MORPH_OPEN, kernel)
+    return cleaned
+
+def smooth_mask_gaussian(mask, kernel_size=15, sigma=1.0):
+    # Le masque doit être en float pour le flou
+    mask_float = mask.astype(np.float32) / 255.0
+    blurred = cv2.GaussianBlur(mask_float, (kernel_size, kernel_size), sigma)
+    # Seuillage pour revenir au binaire (seuil à 0.5 par exemple)
+    _, smoothed = cv2.threshold(blurred, 0.5, 1, cv2.THRESH_BINARY)
+    return (smoothed * 255).astype(np.uint8)
+
+def smooth_masks(mask1, mask2):
+    mask1 = smooth_mask_morphological(mask1)
+    mask2 = smooth_mask_morphological(mask2)
+    mask1 = smooth_mask_gaussian(mask1)
+    mask2 = smooth_mask_gaussian(mask2)
+    return mask1, mask2
 
 def get_mango_mask(image):
     """Masque pour la mangue (jaune) avec ouverture."""
@@ -91,7 +115,7 @@ def get_contours(image):
         card_mask = get_card_mask(image)
     elif mode == "unet":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        checkpoint = torch.load("src/models/Unet-96.ckpt", map_location=device)
+        checkpoint = torch.load("src/models/Unet-98.ckpt", map_location=device)
         state_dict = remove_model_prefix(checkpoint['state_dict'])
         model.load_state_dict(state_dict)  # selon votre format Lightning
         model.to(device)
@@ -100,6 +124,7 @@ def get_contours(image):
         mask = predict_mask(model, tensor, original_size, device)
         mango_mask = (mask == 1).astype(np.uint8) * 255
         card_mask = (mask == 2).astype(np.uint8) * 255
+    mango_mask, card_mask = smooth_masks(mango_mask, card_mask) 
     contours["mango"] = get_largest_contour(mango_mask)
     contours["card"] = get_largest_contour(card_mask)
     return contours
