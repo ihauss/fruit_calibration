@@ -1,77 +1,161 @@
+"""
+src/display.py
+
+Handles visualization of contours and dimensions on images.
+"""
+
 import cv2
 import numpy as np
+from typing import Dict, Tuple, List, Optional
 
-def display_contour(image, contour, color=(0, 255, 0), thickness=15, fill=False):
+class Visualizer:
     """
-    Affiche un contour sur une copie de l'image.
-    - fill=True : remplit l'intérieur du contour (utile pour masque)
+    Visualizes segmentation contours and dimension annotations.
     """
-    img_copy = image.copy()
-    if fill:
-        cv2.drawContours(img_copy, [contour], -1, color, thickness=cv2.FILLED)
-    else:
-        cv2.drawContours(img_copy, [contour], -1, color, thickness)
-    return img_copy
 
-def display_contours(image, contours):
-    display = image.copy()
-    image_cp = image.copy()
-    display = display_contour(display, contours["mango"], color=(255, 0, 0), fill=True)
-    display = display_contour(display, contours["card"], color=(255, 255, 0), fill=True)
-    image_cp = display_contour(image_cp, contours["mango"], color=(255, 0, 0))
-    image_cp = display_contour(image_cp, contours["card"], color=(255, 255, 0))
-    display = cv2.addWeighted(display, 0.4, image_cp, 0.6, 5)
-    return display
+    def __init__(self,
+                 mango_color=(255, 0, 0),      # BGR for mango (red)
+                 card_color=(255, 255, 0),     # BGR for card (cyan)
+                 rect_color=(0, 255, 0),       # BGR for rectangle
+                 contour_thickness=15,
+                 text_scale=2.0,
+                 text_thickness=5,
+                 fill_opacity=0.4,
+                 outline_weight=0.6):
+        """
+        Args:
+            mango_color: BGR color for mango fill.
+            card_color: BGR color for card fill.
+            rect_color: BGR color for the oriented rectangle.
+            contour_thickness: thickness of contour lines (or cv2.FILLED for fill).
+            text_scale: Font scale for dimension labels.
+            text_thickness: Thickness of dimension text.
+            fill_opacity: Opacity weight for filled regions.
+            outline_weight: Weight for outline overlay.
+        """
+        self.mango_color = mango_color
+        self.card_color = card_color
+        self.rect_color = rect_color
+        self.contour_thickness = contour_thickness
+        self.text_scale = text_scale
+        self.text_thickness = text_thickness
+        self.fill_opacity = fill_opacity
+        self.outline_weight = outline_weight
 
-def draw_dimensions_cm(image, dimensions_cm, rect_color=(0, 255, 0), thickness=15):
-    """
-    Dessine les rectangles orientés des objets et affiche leurs dimensions en cm
-    (blanc sur fond noir) au centre de chaque forme.
-    
-    Paramètres:
-        image (numpy.ndarray): Image sur laquelle dessiner (copie modifiée).
-        dimensions_cm (dict): Dictionnaire avec clés 'mango' et 'card'.
-                              Chaque valeur est (pts, (longueur_cm, largeur_cm)).
-        rect_color (tuple): Couleur du rectangle (BGR).
-        thickness (int): Épaisseur des traits.
-    
-    Retourne:
-        numpy.ndarray: Image annotée.
-    """
-    img_out = image.copy()
-    
-    for obj_name, (pts, (long_cm, larg_cm)) in dimensions_cm.items():
-        # pts est un numpy array de shape (4,2) issu de cv2.boxPoints
-        pts = np.array(pts, dtype=np.int32)
-        # Dessiner le rectangle orienté
-        cv2.polylines(img_out, [pts], isClosed=True, color=rect_color, thickness=thickness)
-        
-        # Calcul du centre (moyenne des quatre points)
-        center = np.mean(pts, axis=0).astype(int)
-        cx, cy = center[0], center[1]
-        
-        # Préparer le texte
-        text = f"{long_cm:.1f} x {larg_cm:.1f} cm"
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 2
-        (text_w, text_h), baseline = cv2.getTextSize(text, font, font_scale, thickness=2)
-        
-        # Coordonnées du rectangle noir de fond
-        rect_x1 = cx - text_w // 2 - 5
-        rect_y1 = cy - text_h // 2 - 5
-        rect_x2 = cx + text_w // 2 + 5
-        rect_y2 = cy + text_h // 2 + 5
-        
-        # Dessiner le fond noir
-        cv2.rectangle(img_out, (rect_x1, rect_y1), (rect_x2, rect_y2), (0, 0, 0), -1)
-        # Dessiner le texte blanc (centré)
-        cv2.putText(img_out, text, (cx - text_w // 2, cy + text_h // 2),
-                    font, font_scale, (255, 255, 255), 5)
-    
-    return img_out
+    def _draw_contour(self, image: np.ndarray, contour: np.ndarray,
+                      color: Tuple[int, int, int], fill: bool = False) -> np.ndarray:
+        """
+        Draw a single contour on a copy of the image.
+        """
+        img_copy = image.copy()
+        if fill:
+            cv2.drawContours(img_copy, [contour], -1, color, thickness=cv2.FILLED)
+        else:
+            cv2.drawContours(img_copy, [contour], -1, color, self.contour_thickness)
+        return img_copy
 
+    def display_contours(self, image: np.ndarray,
+                         contours: Dict[str, Optional[np.ndarray]]) -> np.ndarray:
+        """
+        Overlay filled contours and outlines for mango and card.
 
-def display_results(image, contours, dimensions_cm):
-    display = display_contours(image, contours)
-    display = draw_dimensions_cm(display, dimensions_cm)
-    return display
+        Args:
+            image: Original image (BGR).
+            contours: Dictionary with keys 'mango' and 'card' holding contours (or None).
+
+        Returns:
+            Image with contours overlaid.
+        """
+        # Handle missing contours
+        mango_contour = contours.get('mango')
+        card_contour = contours.get('card')
+
+        # Create base display with filled regions
+        display = image.copy()
+        if mango_contour is not None:
+            display = self._draw_contour(display, mango_contour, self.mango_color, fill=True)
+        if card_contour is not None:
+            display = self._draw_contour(display, card_contour, self.card_color, fill=True)
+
+        # Create overlay with outlines only
+        outline_img = image.copy()
+        if mango_contour is not None:
+            outline_img = self._draw_contour(outline_img, mango_contour, self.mango_color, fill=False)
+        if card_contour is not None:
+            outline_img = self._draw_contour(outline_img, card_contour, self.card_color, fill=False)
+
+        # Blend filled and outline
+        blended = cv2.addWeighted(display, self.fill_opacity,
+                                  outline_img, self.outline_weight, 5)
+        return blended
+
+    def draw_dimensions(self, image: np.ndarray,
+                        dimensions_cm: Dict[str, Tuple[List[Tuple[int, int]], Tuple[float, float]]],
+                        rect_color: Optional[Tuple[int, int, int]] = None,
+                        thickness: Optional[int] = None) -> np.ndarray:
+        """
+        Draw oriented rectangles and dimension labels (white on black background).
+
+        Args:
+            image: Image to annotate.
+            dimensions_cm: Dictionary with 'mango' and 'card' keys.
+                           Each value is (pts, (length_cm, width_cm)).
+            rect_color: Color for rectangle (if None, uses self.rect_color).
+            thickness: Thickness for rectangle (if None, uses self.contour_thickness).
+
+        Returns:
+            Annotated image.
+        """
+        img_out = image.copy()
+        rect_color = rect_color if rect_color is not None else self.rect_color
+        thickness = thickness if thickness is not None else self.contour_thickness
+
+        for obj_name, (pts, (long_cm, larg_cm)) in dimensions_cm.items():
+            if pts is None:
+                continue
+            pts = np.array(pts, dtype=np.int32)
+            # Draw oriented rectangle
+            cv2.polylines(img_out, [pts], isClosed=True, color=rect_color, thickness=thickness)
+
+            # Center
+            center = np.mean(pts, axis=0).astype(int)
+            cx, cy = center[0], center[1]
+
+            # Prepare text
+            text = f"{long_cm:.1f} x {larg_cm:.1f} cm"
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            (text_w, text_h), baseline = cv2.getTextSize(text, font, self.text_scale, self.text_thickness)
+
+            # Black background rectangle
+            rect_x1 = cx - text_w // 2 - 5
+            rect_y1 = cy - text_h // 2 - 5
+            rect_x2 = cx + text_w // 2 + 5
+            rect_y2 = cy + text_h // 2 + 5
+            cv2.rectangle(img_out, (rect_x1, rect_y1), (rect_x2, rect_y2), (0, 0, 0), -1)
+
+            # White text
+            cv2.putText(img_out, text,
+                        (cx - text_w // 2, cy + text_h // 2),
+                        font, self.text_scale, (255, 255, 255), self.text_thickness)
+
+        return img_out
+
+    def display_results(self, image: np.ndarray,
+                        contours: Dict[str, Optional[np.ndarray]],
+                        dimensions_cm: Dict[str, Tuple[List[Tuple[int, int]], Tuple[float, float]]]) -> np.ndarray:
+        """
+        Full visualization: contours overlay + dimension annotations.
+
+        Args:
+            image: Original BGR image.
+            contours: Contours from segmentation.
+            dimensions_cm: Dimensions in cm.
+
+        Returns:
+            Fully annotated image.
+        """
+        # Draw contours (filled + outlines)
+        annotated = self.display_contours(image, contours)
+        # Add dimension labels
+        annotated = self.draw_dimensions(annotated, dimensions_cm)
+        return annotated
