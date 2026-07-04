@@ -3,7 +3,7 @@
 A computer vision tool that measures the length and width of a mango (in centimeters) using a red credit card as a scale reference.  
 Supports both **HSV color filtering** and a **deep learning UNet model** for segmentation, with an interactive web interface.
 
-![Original image](./data/IMG_20260609_182110.jpg)  
+![Original image](./data/images/IMG_20260609_182110.jpg)  
 *Figure 1: Original image with mango and red card*
 
 ![Final annotated image](./output.png)  
@@ -143,7 +143,7 @@ engine = SegmentationFactory.create(
 )
 ```
 
-There is already a version trained on a very limited dataset: (Training)[https://colab.research.google.com/drive/1Lhw5cdu7xDCGVorPA9RihcuLFLijX6jO?usp=sharing]
+There is already a version trained on a very limited dataset: [Training](https://colab.research.google.com/drive/1Lhw5cdu7xDCGVorPA9RihcuLFLijX6jO?usp=sharing)
 
 ---
 
