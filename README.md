@@ -75,6 +75,8 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
 ### Web Interface (Streamlit) – **Recommended**
 
+![Final annotated image](./front.png)
+
 Launch the interactive web application:
 
 ```bash
